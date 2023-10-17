@@ -1,14 +1,16 @@
 [package]
 name = "http-api-utils"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 
 [features]
-default = ["error_enum", "tokens"]
+default = ["error_enum", "tokens", "tagged_tokens"]
 error_enum = []
 tokens = []
+tagged_tokens = ["dep:serde"]
 
 [dependencies]
+serde = { version = "1", optional = true }
 serde_json = "1"
 
 [dependencies.rocket]
