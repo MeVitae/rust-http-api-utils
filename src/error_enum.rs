@@ -92,7 +92,7 @@ macro_rules! redis_error_enum {
                             eprintln!("Warning: redis connection dropped");
                             let message = "service temporarily unavailable";
                             Ok(rocket::Response::build()
-                                .status(http::Status::ServiceUnavailable)
+                                .status(rocket::http::Status::ServiceUnavailable)
                                 .raw_header("Retry-After", "30")
                                 .sized_body(message.len(), std::io::Cursor::new(message))
                                 .finalize())
@@ -102,7 +102,7 @@ macro_rules! redis_error_enum {
                             eprintln!("Warning: redis server busy loading");
                             let message = "service temporarily unavailable";
                             Ok(rocket::Response::build()
-                                .status(http::Status::ServiceUnavailable)
+                                .status(rocket::http::Status::ServiceUnavailable)
                                 .raw_header("Retry-After", "20")
                                 .sized_body(message.len(), std::io::Cursor::new(message))
                                 .finalize())
@@ -112,7 +112,7 @@ macro_rules! redis_error_enum {
                             eprintln!("Warning: redis server busy loading");
                             let message = "please try again";
                             Ok(rocket::Response::build()
-                                .status(http::Status::ServiceUnavailable)
+                                .status(rocket::http::Status::ServiceUnavailable)
                                 .raw_header("Retry-After", "5")
                                 .sized_body(message.len(), std::io::Cursor::new(message))
                                 .finalize())
