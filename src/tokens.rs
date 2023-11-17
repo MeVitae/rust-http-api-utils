@@ -66,7 +66,7 @@ impl<'r> FromRequest<'r> for TokenAuth {
             .and_then(|token| tokens.verify(token))
         {
             Some(token) => Outcome::Success(token),
-            None => Outcome::Failure((http::Status::Forbidden, ())),
+            None => Outcome::Error((http::Status::Forbidden, ())),
         }
     }
 }

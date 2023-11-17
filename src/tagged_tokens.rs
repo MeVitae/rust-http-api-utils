@@ -70,7 +70,7 @@ impl<'r, T: Send + Sync + 'static> FromRequest<'r> for TaggedTokenAuth<'r, T> {
             .and_then(|token| tokens.verify(token))
         {
             Some(token) => Outcome::Success(token),
-            None => Outcome::Failure((http::Status::Forbidden, ())),
+            None => Outcome::Error((http::Status::Forbidden, ())),
         }
     }
 }
