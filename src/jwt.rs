@@ -79,7 +79,14 @@ where
                     .filter_map(|auth| dbg!(auth.strip_prefix(BEARER_SPACE)))
                     // It must then succesfully be verified when decoded:
                     .map(JWT::new_encoded)
-                    .filter_map(|token| token.decode_with_jwks($key_set, None).ok())
+                    .filter_map(|token| {
+                        token
+                            .decode_with_jwks(
+                                $key_set,
+                                Some(biscuit::jwa::SignatureAlgorithm::RS256),
+                            )
+                            .ok()
+                    })
                     // We only need to find the first token that is succesfully verified.
                     .next()
             };
@@ -354,10 +361,19 @@ struct Cached<T> {
 
 impl<T> Cache<T> {
     fn new(initial_value: T) -> Cache<T> {
+        let now = Instant::now();
         Cache {
             cached: RwLock::new(Cached {
                 value: Arc::new(initial_value),
-                time: Instant::now(),
+                time: now
+                    .checked_sub(Duration::from_secs(60 * 60 * 24 * 365))
+                    .or_else(|| now.checked_sub(Duration::from_secs(60 * 60 * 24 * 30)))
+                    .or_else(|| now.checked_sub(Duration::from_secs(60 * 60 * 24 * 7)))
+                    .or_else(|| now.checked_sub(Duration::from_secs(60 * 60 * 24)))
+                    .or_else(|| now.checked_sub(Duration::from_secs(60 * 60)))
+                    .or_else(|| now.checked_sub(Duration::from_secs(60)))
+                    .or_else(|| now.checked_sub(Duration::from_secs(30)))
+                    .unwrap(),
             }),
         }
     }
