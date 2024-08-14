@@ -6,6 +6,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use biscuit::jwk::JWKSet;
+use biscuit::jws;
 use biscuit::{ClaimsSet, JWT};
 use rocket::{
     request::{self, FromRequest},
@@ -20,32 +21,51 @@ const BEARER_SPACE: &str = "Bearer ";
 /// Authorization header.
 ///
 /// The generic parameters are:
-/// - `S` the type of the `KeySetSource` to load the valid signing keys from. This must be managed
-///   as state by rocket.
-/// - `C` the type of the `JwtPayloadVerifier` to validate the JWT payload with. This must be
+/// - `S` is the type of the [`KeySetSource`] to load the valid signing keys from. This must be
 ///   managed as state by rocket.
-/// - `T` is the type of the private token claims, and
+/// - `C` is the type of the [`JwtPayloadVerifier`] to validate the JWT payload with. This must be
+///   managed as state by rocket.
+/// - `U` is the type of the [`TagSource`] which can validate and return a tag for the token. For
+///   valdation of the payload only, you should use `C: JwtPayloadVerifier` instead. This must be
+///   managed as state by rocket. It defaults to [`EmptyTagSource`], which tags all tokens with
+///   `()`.
+/// - `T` is the type of the private token claims (the payload), and
 /// - `H` is the type of the private token headers.
+///
+/// The verification flow is:
+///
+/// 1. Find the JWT from the `Authorization: Bearer <token>` HTTP header.
+/// 2. Verify this token using the [`JWKSet`] from the `S: KeySetSource` state.
+/// 3. Verify the token payload using the `C: JwtPayloadVerifier<T>` state.
+/// 4. Attempt to generate a tag using the `U: TagSource<T, H>` state. If this returns `None`, the
+///    token is rejected. If `Some`, that value becomes the token's `tag`.
 pub struct VerifiedToken<
     S: KeySetSource,
     C: JwtPayloadVerifier<T> = DefaultJwtPayloadVerifier,
+    U: TagSource<T, H> = EmptyTagSource,
     T: for<'de> Deserialize<'de> + Serialize = (),
     H: for<'de> Deserialize<'de> + Serialize = (),
 > {
     pub jwt: JWT<T, H>,
+    pub tag: U::Tag,
 
     /// A field that exists to prevent creation of a `VerifiedToken` outside of our control.
+    ///
+    /// We don't actually need this, since we also have the phantomdata, however we'll leave it
+    /// here to express the intent of having it!
     _must_be_verified: (),
 
+    phantom_tag_source: PhantomData<U>,
     phantom_source: PhantomData<S>,
     phantom_checker: PhantomData<C>,
 }
 
 #[rocket::async_trait]
-impl<'r, S, C, T, H> FromRequest<'r> for VerifiedToken<S, C, T, H>
+impl<'r, S, U, C, T, H> FromRequest<'r> for VerifiedToken<S, C, U, T, H>
 where
     S: KeySetSource,
     C: JwtPayloadVerifier<T>,
+    U: TagSource<T, H>,
     T: for<'de> Deserialize<'de> + Serialize + Send,
     H: for<'de> Deserialize<'de> + Serialize + Send,
 {
@@ -53,7 +73,7 @@ where
 
     async fn from_request(
         req: &'r Request<'_>,
-    ) -> request::Outcome<VerifiedToken<S, C, T, H>, Self::Error> {
+    ) -> request::Outcome<VerifiedToken<S, C, U, T, H>, Self::Error> {
         // Load the key set:
         let key_set_source = req.rocket().state::<S>().unwrap();
         let mut key_set = key_set_source.get_key_set();
@@ -93,7 +113,7 @@ where
         }
 
         let signed_token = loop {
-            match get_verified_jwt!(dbg!(key_set.deref())) {
+            match get_verified_jwt!(key_set.deref()) {
                 // If a JWT was verified, return it!
                 Some(jwt) => break jwt,
 
@@ -114,16 +134,43 @@ where
         // Load the checker and check the key:
         let checker = req.rocket().state::<C>().unwrap();
         let payload = signed_token.payload().unwrap();
-        if dbg!(checker.check(payload)) {
-            request::Outcome::Success(VerifiedToken {
-                jwt: signed_token,
-                _must_be_verified: (),
-                phantom_source: PhantomData,
-                phantom_checker: PhantomData,
-            })
-        } else {
-            request::Outcome::Error((rocket::http::Status::Unauthorized, ()))
+        if checker.check(payload) {
+            // Then load the tag source and attempt to get the tag.
+            let tag_source = req.rocket().state::<U>().unwrap();
+            if let Some(tag) = tag_source.tag(signed_token.header().unwrap(), payload) {
+                return request::Outcome::Success(VerifiedToken {
+                    tag,
+                    jwt: signed_token,
+                    _must_be_verified: (),
+                    phantom_tag_source: PhantomData,
+                    phantom_source: PhantomData,
+                    phantom_checker: PhantomData,
+                });
+            }
         }
+        request::Outcome::Error((rocket::http::Status::Unauthorized, ()))
+    }
+}
+
+/// Generate tags for verified tokens from their header and payload.
+pub trait TagSource<T, H>: Send + Sync + 'static {
+    type Tag;
+
+    /// Given the header and claims of an already verified token, return the tag.
+    ///
+    /// If this returns `None`, the token is rejected. Otherwise, the return value is used as the
+    /// [`VerifiedToken`]s `tag`.
+    fn tag(&self, jwt_header: &jws::Header<H>, jwt_claims: &ClaimsSet<T>) -> Option<Self::Tag>;
+}
+
+/// A tag source which always generates `()` as the tag.
+pub struct EmptyTagSource;
+
+impl<T, H> TagSource<T, H> for EmptyTagSource {
+    type Tag = ();
+
+    fn tag(&self, _jwt_header: &jws::Header<H>, _jwt_claims: &ClaimsSet<T>) -> Option<()> {
+        Some(())
     }
 }
 
