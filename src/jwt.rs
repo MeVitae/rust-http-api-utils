@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use biscuit::jwk::JWKSet;
 use biscuit::jws;
 use biscuit::{ClaimsSet, JWT};
+use futures::future;
 use rocket::{
     request::{self, FromRequest},
     Request,
@@ -231,7 +232,31 @@ impl<T> JwtPayloadVerifier<T> for DefaultJwtPayloadVerifier {
     }
 }
 
+/// A key set source, with only a `get_keys` method.
+///
+/// This can be wrapped up using [`CachedKeySetSource`] to implement [`KeySetSource`].
+#[rocket::async_trait]
+pub trait SimpleKeySetSource: Send + Sync + 'static {
+    async fn get_keys(&self) -> JWKSet<()>;
+}
+
+#[rocket::async_trait]
+impl<T: SimpleKeySetSource> SimpleKeySetSource for Vec<T> {
+    async fn get_keys(&self) -> JWKSet<()> {
+        JWKSet {
+            keys: future::join_all(self.iter().map(SimpleKeySetSource::get_keys))
+                .await
+                .into_iter()
+                .flat_map(|jwks| jwks.keys)
+                .collect(),
+        }
+    }
+}
+
 /// A source of JSON Web Keys. Used for validating JWTs when generating a [`VerifiedToken`].
+///
+/// This can be easily implemented by first implementing [`SimpleKeySetSource`], then wrapping that
+/// type in [`CachedKeySetSource`].
 #[rocket::async_trait]
 pub trait KeySetSource: Send + Sync + 'static {
     type Ref: Deref<Target = JWKSet<()>> + Send + Sync;
@@ -248,18 +273,46 @@ pub trait KeySetSource: Send + Sync + 'static {
     async fn refresh_key_set(&self) -> Option<Self::Ref>;
 }
 
+/// Wrap a [`SimpleKeySetSource`] to implement [`KeySetSource`].
+pub struct CachedKeySetSource<T: SimpleKeySetSource> {
+    pub source: T,
+    cache: Cache<JWKSet<()>>,
+}
+
+impl<T: SimpleKeySetSource> CachedKeySetSource<T> {
+    pub fn new(source: T) -> CachedKeySetSource<T> {
+        CachedKeySetSource {
+            source,
+            cache: Cache::new(JWKSet { keys: Vec::new() }),
+        }
+    }
+}
+
+#[rocket::async_trait]
+impl<T: SimpleKeySetSource> KeySetSource for CachedKeySetSource<T> {
+    type Ref = Arc<JWKSet<()>>;
+
+    fn get_key_set(&self) -> Self::Ref {
+        self.cache.get_value()
+    }
+
+    async fn refresh_key_set(&self) -> Option<Self::Ref> {
+        self.cache
+            .update(Duration::from_secs(15), || self.source.get_keys())
+            .await
+    }
+}
+
 /// Keys sourced from a URL pointing to a JSON Web Keys structure.
+///
+/// Wrap this with [`CachedKeySetSource`] to implement [`KeySetSource`].
 pub struct HttpKeySetSource<U: UrlSource = FixedUrl> {
     pub url: U,
-    cache: Cache<JWKSet<()>>,
 }
 
 impl<U: UrlSource> HttpKeySetSource<U> {
     pub fn new(url: U) -> HttpKeySetSource<U> {
-        HttpKeySetSource {
-            url,
-            cache: Cache::new(JWKSet { keys: Vec::new() }),
-        }
+        HttpKeySetSource { url }
     }
 }
 
@@ -270,24 +323,15 @@ impl HttpKeySetSource<OidcJwksUri<FixedUrl>> {
 }
 
 #[rocket::async_trait]
-impl<U: UrlSource> KeySetSource for HttpKeySetSource<U> {
-    type Ref = Arc<JWKSet<()>>;
-
-    fn get_key_set(&self) -> Self::Ref {
-        self.cache.get_value()
-    }
-
-    async fn refresh_key_set(&self) -> Option<Self::Ref> {
-        let refresh = || async {
-            let url = self.url.update().await;
-            reqwest::get(url.as_ref())
-                .await
-                .unwrap()
-                .json()
-                .await
-                .unwrap()
-        };
-        self.cache.update(Duration::from_secs(15), refresh).await
+impl<U: UrlSource> SimpleKeySetSource for HttpKeySetSource<U> {
+    async fn get_keys(&self) -> JWKSet<()> {
+        let url = self.url.update().await;
+        reqwest::get(url.as_ref())
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
     }
 }
 

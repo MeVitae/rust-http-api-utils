@@ -1,6 +1,6 @@
 [package]
 name = "http-api-utils"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 
 [features]
@@ -13,7 +13,7 @@ jwt = ["dep:biscuit", "dep:reqwest", "dep:http", "dep:serde", "dep:serde_json"]
 [dependencies]
 serde = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
-
+futures = "^0.3.30"
 biscuit = { version = "0.7", optional = true }
 reqwest = { version = "0.11", features = ["json"], optional = true }
 http = { version = "1", optional = true }
