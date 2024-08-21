@@ -48,7 +48,7 @@ pub struct VerifiedToken<
     H: for<'de> Deserialize<'de> + Serialize = (),
 > {
     pub jwt: JWT<T, H>,
-    pub tag: U::Tag,
+    tag: U::Tag,
 
     /// A field that exists to prevent creation of a `VerifiedToken` outside of our control.
     ///
@@ -59,6 +59,19 @@ pub struct VerifiedToken<
     phantom_tag_source: PhantomData<U>,
     phantom_source: PhantomData<S>,
     phantom_checker: PhantomData<C>,
+}
+
+impl<'r, S, U, C, T, H> VerifiedToken<S, C, U, T, H>
+where
+    S: KeySetSource,
+    C: JwtPayloadVerifier<T>,
+    U: TagSource<T, H>,
+    T: for<'de> Deserialize<'de> + Serialize + Send,
+    H: for<'de> Deserialize<'de> + Serialize + Send,
+{
+    pub fn tag(&self) -> &U::Tag {
+        &self.tag
+    }
 }
 
 #[rocket::async_trait]
