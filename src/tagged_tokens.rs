@@ -25,6 +25,12 @@ error_enum! {
     }
 }
 
+impl<T: Send + Sync> TaggedTokens<T> {
+    pub fn new(tokens: HashMap<String, T>) -> TaggedTokens<T> {
+        TaggedTokens { tokens }
+    }
+}
+
 impl<T: Send + Sync + for<'de> Deserialize<'de>> TaggedTokens<T> {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<TaggedTokens<T>, TaggedTokenLoadError> {
         Ok(TaggedTokens {
