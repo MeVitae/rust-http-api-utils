@@ -301,6 +301,12 @@ impl<T: SimpleKeySetSource> CachedKeySetSource<T> {
     }
 }
 
+impl CachedKeySetSource<HttpKeySetSource<OidcJwksUri<FixedUrl>>> {
+    pub fn new_b2c(tenant: &str, policy: &str) -> Self {
+        CachedKeySetSource::new(HttpKeySetSource::new_b2c(tenant, policy))
+    }
+}
+
 #[rocket::async_trait]
 impl<T: SimpleKeySetSource> KeySetSource for CachedKeySetSource<T> {
     type Ref = Arc<JWKSet<()>>;
