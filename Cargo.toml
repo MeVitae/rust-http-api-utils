@@ -22,5 +22,5 @@ http = { version = "1", optional = true }
 # See https://github.com/rwf2/Rocket/pull/2919
 version = "0.6.0-dev"
 git = "https://github.com/JOT85/Rocket.git"
-branch = "fix-inconsistent-spans"
+branch = "fix-more-inconsistent-spans"
 features = ["json", "tls"]
