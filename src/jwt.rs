@@ -9,6 +9,7 @@ use biscuit::jwk::JWKSet;
 use biscuit::jws;
 use biscuit::{ClaimsSet, JWT};
 use futures::future;
+use log::{info, warn};
 use rocket::{
     request::{self, FromRequest},
     Request,
@@ -140,6 +141,7 @@ where
                             continue;
                         }
                     }
+                    warn!("no decoded jwt, unauthorized");
                     return request::Outcome::Error((rocket::http::Status::Unauthorized, ()));
                 }
             }
@@ -152,6 +154,7 @@ where
             // Then load the tag source and attempt to get the tag.
             let tag_source = req.rocket().state::<U>().unwrap();
             if let Some(tag) = tag_source.tag(signed_token.header().unwrap(), payload) {
+                info!("jwt passed");
                 return request::Outcome::Success(VerifiedToken {
                     tag,
                     jwt: signed_token,
@@ -162,6 +165,7 @@ where
                 });
             }
         }
+        warn!("jwt failed check");
         request::Outcome::Error((rocket::http::Status::Unauthorized, ()))
     }
 }
