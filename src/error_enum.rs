@@ -98,7 +98,7 @@ macro_rules! redis_error_enum {
                                 .finalize())
                         }
                         // If redis is loading data, tell the client to retry in 20 seconds
-                        err if err.kind() == redis::ErrorKind::Server(redis::ServerErrorKind::BusyLoadingError) => {
+                        err if err.kind() == redis::ErrorKind::Server(redis::ServerErrorKind::BusyLoading) => {
                             eprintln!("Warning: redis server busy loading");
                             let message = "service temporarily unavailable";
                             Ok(rocket::Response::build()
